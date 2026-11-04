@@ -82,12 +82,24 @@ async function body<T = any>(req: Request): Promise<T> {
 
 /* ---------- setup ---------- */
 let ready: Promise<void> | null = null;
+let generatedSecret: string | null = null;
+const hasSecret = (env: Env) => !!env.SESSION_SECRET && env.SESSION_SECRET.length >= 16;
 async function ensureReady(env: Env) {
   if (!env.DB || !env.BOOKS) throw new HttpError(500, "ربط D1 أو R2 غير مضبوط في Cloudflare (DB / BOOKS)");
-  if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 16) throw new HttpError(500, "SESSION_SECRET غير مضبوط");
   if (!ready) {
     ready = (async () => {
       await env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s)));
+      if (!hasSecret(env)) {
+        // No SESSION_SECRET configured: create a random one once and keep it in D1.
+        let row = await env.DB.prepare("SELECT v FROM app_secrets WHERE k='session'").first<{ v: string }>();
+        if (!row) {
+          const bytes = crypto.getRandomValues(new Uint8Array(32));
+          const v = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+          await env.DB.prepare("INSERT OR IGNORE INTO app_secrets(k,v) VALUES('session',?)").bind(v).run();
+          row = await env.DB.prepare("SELECT v FROM app_secrets WHERE k='session'").first<{ v: string }>();
+        }
+        generatedSecret = row!.v;
+      }
       const row = await env.DB.prepare("SELECT COUNT(*) AS c FROM users").first<{ c: number }>();
       if (!row || row.c === 0) {
         if (!env.ADMIN_PASSWORD || !env.DYALA_PASSWORD) throw new HttpError(500, "ADMIN_PASSWORD و DYALA_PASSWORD غير مضبوطين");
@@ -103,6 +115,7 @@ async function ensureReady(env: Env) {
     });
   }
   await ready;
+  if (!hasSecret(env) && generatedSecret) env.SESSION_SECRET = generatedSecret;
 }
 
 async function currentUser(req: Request, env: Env): Promise<User | null> {

@@ -56,6 +56,7 @@ export const SCHEMA: string[] = [
     name TEXT NOT NULL,
     PRIMARY KEY (owner_id, name)
   )`,
+  `CREATE TABLE IF NOT EXISTS app_secrets (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS login_fail (
     key TEXT PRIMARY KEY,
     count INTEGER NOT NULL,
