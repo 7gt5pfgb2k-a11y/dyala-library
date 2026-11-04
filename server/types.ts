@@ -29,4 +29,6 @@ export interface Env {
   SESSION_SECRET: string;
   ADMIN_PASSWORD: string;
   DYALA_PASSWORD: string;
+  ANTHROPIC_API_KEY?: string;
+  AI_MODEL?: string;
 }

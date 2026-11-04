@@ -19,7 +19,7 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
   const [zoom, setZoom] = useState(1);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("dyala:theme") as Theme) || "cream");
   const [marks, setMarks] = useState<number[]>([]);
-  const [panel, setPanel] = useState<"" | "search" | "marks" | "toc">("");
+  const [panel, setPanel] = useState<"" | "search" | "marks" | "toc" | "ai">("");
   const [outline, setOutline] = useState<Chapter[]>([]);
   const [stats, setStats] = useState<Stats | null>(cache.stats(me.id));
   const [session, setSession] = useState(0);
@@ -169,6 +169,21 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
     toast.show(`الثيم: ${THEME_LABEL[next]}`);
   };
   const chapterNow = (() => { let c: Chapter | null = null; for (const ch of outline) { if (ch.depth === 0 && ch.page <= page) c = ch; } let sub: Chapter | null = null; for (const ch of outline) { if (ch.depth === 1 && ch.page <= page && (!c || ch.page >= c.page)) sub = ch; } return sub ?? c; })();
+  const chapterRange = (() => {
+    const ch = chapterNow;
+    if (!ch) return { from: Math.max(1, page - 2), to: Math.min(total, page + 3) };
+    const next = outline.find((x) => x.depth <= ch.depth && x.page > ch.page);
+    return { from: ch.page, to: Math.min(next ? next.page - 1 : total, ch.page + 11) };
+  })();
+  const captureImage = () => {
+    const c = canvasRef.current;
+    if (!c || !c.width) return "";
+    const k = Math.min(1, 1400 / c.width);
+    const t = document.createElement("canvas");
+    t.width = Math.round(c.width * k); t.height = Math.round(c.height * k);
+    const g = t.getContext("2d")!; g.fillStyle = "#fff"; g.fillRect(0, 0, t.width, t.height); g.drawImage(c, 0, 0, t.width, t.height);
+    return t.toDataURL("image/jpeg", 0.8);
+  };
   const marked = marks.includes(page);
   const toggleMark = () => { touchActive(); setMarks((m) => (m.includes(page) ? m.filter((x) => x !== page) : [...m, page].sort((a, b) => a - b))); };
   const markDone = () => { if (book) { saveProgress(book.id, { lastPage: total, bookmarks: marks, status: "done" }); toast.show("تم تعليم الكتاب كمكتمل"); } };
@@ -220,12 +235,16 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
         <button className="icon-btn" onClick={() => goPage(page + 1)} disabled={page >= total} aria-label="الصفحة التالية"><Icon n="chevL" /></button>
         <div className="r-tools">
           <button className="chip" onClick={() => setZoom((z) => (z >= 2.5 ? 1 : +(z + 0.5).toFixed(1)))}>تكبير {zoom === 1 ? "" : `×${zoom}`}</button>
+          <button className="chip ai" onClick={() => setPanel("ai")}>اسأل AI</button>
           {outline.length > 0 && <button className="chip" onClick={() => setPanel("toc")}>الفصول</button>}
           <button className="chip" onClick={() => setPanel("marks")}>العلامات {marks.length ? `(${marks.length})` : ""}</button>
         </div>
       </footer>
 
       {panel === "search" && book && <SearchPanel bookId={book.id} onClose={() => setPanel("")} onPick={(n) => { goPage(n); setPanel(""); }} />}
+      {panel === "ai" && book && (
+        <AiPanel bookId={book.id} page={page} range={chapterRange} onClose={() => setPanel("")} getImage={captureImage} />
+      )}
       {panel === "toc" && (
         <Sheet title="الفصول" onClose={() => setPanel("")}>
           <div className="list">
@@ -288,6 +307,43 @@ function SearchPanel({ bookId, onClose, onPick }: { bookId: string; onClose: () 
           <li key={r.page}><button onClick={() => onPick(r.page)}><b>صفحة {r.page}</b><span dir="auto">{r.snippet}</span></button></li>
         ))}
       </ul>
+    </Sheet>
+  );
+}
+
+type Msg = { role: "user" | "assistant"; content: string };
+function AiPanel({ bookId, page, range, onClose, getImage }: { bookId: string; page: number; range: { from: number; to: number }; onClose: () => void; getImage: () => string }) {
+  const [lang, setLang] = useState<"ar" | "en">(() => (localStorage.getItem("dyala:ailang") as "ar" | "en") || "ar");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [log, setLog] = useState<{ title: string; text: string }[]>([]);
+  const [chat, setChat] = useState<Msg[]>([]);
+  const [q, setQ] = useState("");
+  const run = async (mode: "explain" | "quiz" | "summary" | "ask", title: string, question = "") => {
+    setBusy(true); setErr("");
+    try {
+      const r = await api<{ answer: string }>("ai", { method: "POST", body: { bookId, mode, page, from: range.from, to: range.to, lang, question, history: chat, image: mode === "explain" || mode === "ask" ? getImage() : undefined } });
+      setLog((l) => [...l, { title, text: r.answer }]);
+      if (mode === "ask") setChat((c) => [...c, { role: "user", content: question }, { role: "assistant", content: r.answer }]);
+    } catch (e: any) { setErr(e?.message || "تعذّر الطلب"); }
+    setBusy(false);
+  };
+  const setL = (l: "ar" | "en") => { setLang(l); try { localStorage.setItem("dyala:ailang", l); } catch {} };
+  return (
+    <Sheet title="مساعد الدراسة" onClose={onClose}>
+      <div className="ai-bar">
+        <button className="chip" disabled={busy} onClick={() => run("explain", `شرح صفحة ${page}`)}>اشرح الصفحة</button>
+        <button className="chip" disabled={busy} onClick={() => run("summary", `ملخص ص. ${range.from}–${range.to}`)}>ملخص الفصل</button>
+        <button className="chip" disabled={busy} onClick={() => run("quiz", `اختبار ص. ${range.from}–${range.to}`)}>اختبرني</button>
+        <button className={`chip ${lang === "ar" ? "on" : ""}`} onClick={() => setL(lang === "ar" ? "en" : "ar")}>{lang === "ar" ? "عربي" : "English"}</button>
+      </div>
+      {log.map((m, i) => <div key={i} className="ai-msg"><b>{m.title}</b><div dir="auto" className="ai-text">{m.text}</div></div>)}
+      {busy && <p className="muted">جاري التفكير...</p>}
+      {err && <p className="error">{err}</p>}
+      <form className="ai-ask" onSubmit={(e) => { e.preventDefault(); const t = q.trim(); if (t && !busy) { setQ(""); run("ask", t, t); } }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`اسألي عن صفحة ${page}...`} dir="auto" />
+        <button className="btn primary" disabled={busy || !q.trim()}>إرسال</button>
+      </form>
     </Sheet>
   );
 }

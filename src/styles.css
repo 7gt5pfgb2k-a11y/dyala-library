@@ -137,3 +137,10 @@ input.full { width: 100%; margin-bottom: 8px; }
 .row.toc { justify-content: space-between; }
 .row.toc.d1 { margin-inline-start: 18px; font-size: 14px; background: transparent; }
 .toc-t { flex: 1; min-width: 0; text-align: start; }
+
+.chip.ai { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.ai-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ai-msg { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+.ai-text { white-space: pre-wrap; line-height: 1.8; margin-top: 6px; font-size: .96rem; }
+.ai-ask { display: flex; gap: 8px; position: sticky; bottom: 0; padding-top: 8px; background: var(--bg); }
+.ai-ask input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; }

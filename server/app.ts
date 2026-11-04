@@ -333,6 +333,66 @@ async function route(req: Request, env: Env): Promise<Response> {
     return json({ results: rows.map((r) => ({ bookId: r.bookId, title: r.title, page: r.n, snippet: snippet(r.text, q) })) });
   }
 
+  /* --- AI helper (explain / quiz / summary / ask) --- */
+  if (path === "ai" && m === "POST") {
+    if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, "ميزة الـ AI غير مفعّلة بعد (المفتاح غير مضاف)");
+    const b = await body(req);
+    const book = await getBook(env, text(b.bookId, 40), user);
+    const mode = ["explain", "quiz", "summary", "ask"].includes(b.mode) ? (b.mode as string) : "explain";
+    const lang = b.lang === "en" ? "en" : "ar";
+    const page = int(b.page, 1, 100000, 1);
+    const from = int(b.from, 1, 100000, page);
+    const to = Math.min(int(b.to, 1, 100000, page), from + 11);
+    const question = text(b.question, 600);
+    const history = Array.isArray(b.history) ? (b.history as any[]).slice(-6).map((h) => ({ role: h?.role === "assistant" ? "assistant" : "user", content: text(h?.content, 4000) })).filter((h) => h.content) : [];
+    if (mode === "ask" && !question) throw new HttpError(400, "اكتبي السؤال");
+
+    const day = new Date().toISOString().slice(0, 10);
+    const limit = user.role === "admin" ? 300 : 80;
+    const used = (await env.DB.prepare("SELECT count FROM ai_usage WHERE user_id=? AND day=?").bind(user.id, day).first<{ count: number }>())?.count ?? 0;
+    if (used >= limit) throw new HttpError(429, "وصلتي للحد اليومي لأسئلة الـ AI، بنرجع بكرا");
+    await env.DB.prepare("INSERT INTO ai_usage(user_id,day,count) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET count=count+1").bind(user.id, day).run();
+
+    const lo = mode === "explain" || mode === "ask" ? Math.max(1, page - 1) : from;
+    const hi = mode === "explain" || mode === "ask" ? Math.min(book.pages || page + 1, page + 1) : to;
+    const rows = (await env.DB.prepare("SELECT n,text FROM book_pages WHERE book_id=? AND n BETWEEN ? AND ? ORDER BY n").bind(book.id, lo, hi).all<{ n: number; text: string }>()).results;
+    const ctx = rows.map((r) => `[صفحة ${r.n}]\n${r.text.slice(0, 3500)}`).join("\n\n").slice(0, 24000);
+
+    const langRule = lang === "en"
+      ? "Answer in clear English."
+      : "اكتب الشرح بعربية بسيطة وواضحة (لهجة بيضاء قريبة للفلسطينية مقبولة)، وخلّي المصطلحات العلمية والرموز والمعادلات بالإنجليزية كما هي في الكتاب.";
+    const system = [
+      `You are a patient private tutor helping a student (Dyala) study the book "${book.title}". Use only the book content provided (page text and, when attached, the page image) as your main source; if something is not in the provided pages, say so briefly and then answer from general knowledge, marking it clearly.`,
+      "Always cite page numbers like (ص. 12) / (p. 12). Math formulas: write them plainly in text, step by step. Be concise; no filler, no emojis.",
+      langRule,
+      mode === "explain" ? `Task: explain page ${page} step by step: main idea, key terms, worked example if any, then one short check question.` : "",
+      mode === "summary" ? `Task: summarise pages ${from}-${to} as a short study sheet: key concepts, formulas/definitions, common mistakes.` : "",
+      mode === "quiz" ? `Task: write 5 exam-style questions from pages ${from}-${to} with increasing difficulty. Give the questions first, then an "Answers" section with short worked answers and page references.` : "",
+      mode === "ask" ? "Task: answer the student's question using the pages; keep it short and direct." : "",
+    ].filter(Boolean).join("\n");
+
+    const content: any[] = [];
+    if (typeof b.image === "string" && /^data:image\/jpeg;base64,/.test(b.image) && b.image.length < 3_500_000 && (mode === "explain" || mode === "ask")) {
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b.image.slice(b.image.indexOf(",") + 1) } });
+    }
+    content.push({ type: "text", text: `Book pages (extracted text, may lose formulas):\n${ctx || "(no extracted text)"}\n\n${mode === "ask" ? `Question (current page ${page}): ${question}` : `Please do the task for the current request. Current page: ${page}.`}` });
+    const messages = mode === "ask" ? [...history, { role: "user", content }] : [{ role: "user", content }];
+
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: env.AI_MODEL || "claude-sonnet-5-5", max_tokens: 1800, system, messages }),
+    });
+    if (!r.ok) {
+      console.error("anthropic", r.status, (await r.text()).slice(0, 300));
+      await env.DB.prepare("UPDATE ai_usage SET count=MAX(0,count-1) WHERE user_id=? AND day=?").bind(user.id, day).run();
+      throw new HttpError(502, r.status === 401 ? "مفتاح الـ AI غير صحيح" : r.status === 402 || r.status === 400 ? "رصيد الـ AI غير كافٍ أو الطلب مرفوض" : "تعذّر الاتصال بالـ AI، جرّبي بعد شوي");
+    }
+    const out: any = await r.json();
+    const answer = (out.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim();
+    return json({ answer, left: limit - used - 1 });
+  }
+
   /* --- books --- */
   if (path === "books" && m === "POST") {
     const b = await body(req);

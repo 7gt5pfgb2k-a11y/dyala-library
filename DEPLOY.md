@@ -46,3 +46,9 @@ npm install
 npm run dev        # http://localhost:8788 ، حساب ahmed / admin-pass-123 وحساب dyala / dyala-pass-123
 ```
 بيانات التجربة بتنحفظ بمجلد `.dev-data` (غير مرفوع على GitHub).
+
+## AI (اسأل AI)
+
+Add one more Pages secret: `ANTHROPIC_API_KEY` (Settings → Variables and secrets → Add → Secret), then redeploy.
+Optional: `AI_MODEL` (default `claude-sonnet-5-5`). Daily limit per user: 80 (admin 300), see `server/app.ts`.
+Local test without a key: `MOCK_AI=1 npx tsx dev/dev-server.ts`.

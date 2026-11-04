@@ -62,7 +62,23 @@ const env = {
   SESSION_SECRET: process.env.SESSION_SECRET ?? "dev-secret-dev-secret-dev-secret",
   ADMIN_PASSWORD: process.env.ADMIN_PASSWORD ?? "admin-pass-123",
   DYALA_PASSWORD: process.env.DYALA_PASSWORD ?? "dyala-pass-123",
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? (process.env.MOCK_AI ? "mock" : undefined),
 } as unknown as Env;
+
+// MOCK_AI=1: answer Anthropic calls locally (echoes what the server sent) so the flow can be tested without a key.
+if (process.env.MOCK_AI) {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (u: any, init?: any) => {
+    if (String(u).startsWith("https://api.anthropic.com")) {
+      const b = JSON.parse(init.body);
+      const c = b.messages.at(-1).content;
+      const hasImg = c.some((x: any) => x.type === "image");
+      const txt = c.find((x: any) => x.type === "text").text;
+      return new Response(JSON.stringify({ content: [{ type: "text", text: `MOCK model=${b.model} image=${hasImg} pagesInCtx=${(txt.match(/\[صفحة \d+\]/g) || []).length}\n${b.system.split("\n").slice(-2).join(" | ")}` }] }), { status: 200 });
+    }
+    return real(u, init);
+  }) as typeof fetch;
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
