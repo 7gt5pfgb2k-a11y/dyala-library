@@ -1,0 +1,23 @@
+{
+  "name": "dyala-library",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "مكتبة ديالا: موقع/تطبيق دراسة وقراءة كتب PDF",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs && npx tsx dev/dev-server.ts",
+    "check": "tsc --noEmit -p tsconfig.server.json",
+    "test:e2e": "npx tsx dev/e2e.ts"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.2.108",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0"
+  }
+}
