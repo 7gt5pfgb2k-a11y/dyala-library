@@ -348,7 +348,7 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (mode === "ask" && !question) throw new HttpError(400, "اكتبي السؤال");
 
     const day = new Date().toISOString().slice(0, 10);
-    const limit = user.role === "admin" ? 300 : 80;
+    const limit = user.role === "admin" ? 30 : 200;
     const used = (await env.DB.prepare("SELECT count FROM ai_usage WHERE user_id=? AND day=?").bind(user.id, day).first<{ count: number }>())?.count ?? 0;
     if (used >= limit) throw new HttpError(429, "وصلتي للحد اليومي لأسئلة الـ AI، بنرجع بكرا");
     await env.DB.prepare("INSERT INTO ai_usage(user_id,day,count) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET count=count+1").bind(user.id, day).run();

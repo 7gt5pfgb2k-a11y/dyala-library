@@ -50,5 +50,5 @@ npm run dev        # http://localhost:8788 ، حساب ahmed / admin-pass-123 و
 ## AI (اسأل AI)
 
 Add one more Pages secret: `ANTHROPIC_API_KEY` (Settings → Variables and secrets → Add → Secret), then redeploy.
-Optional: `AI_MODEL` (default `claude-sonnet-5-5`). Daily limit per user: 80 (admin 300), see `server/app.ts`.
+Optional: `AI_MODEL` (default `claude-sonnet-5-5`). Daily limit per user: 200 (admin 30), see `server/app.ts`.
 Local test without a key: `MOCK_AI=1 npx tsx dev/dev-server.ts`.
