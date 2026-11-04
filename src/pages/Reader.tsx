@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { openPdf } from "../pdf";
+import { openPdf, readOutline, type Chapter } from "../pdf";
 import { cache, fmtClock, pdfStore, saveProgress, saveReading, today } from "../store";
 import type { Book, Library, Me, Stats } from "../types";
 import { Icon, Sheet, go, useToast } from "../ui";
@@ -19,7 +19,8 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
   const [zoom, setZoom] = useState(1);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("dyala:theme") as Theme) || "cream");
   const [marks, setMarks] = useState<number[]>([]);
-  const [panel, setPanel] = useState<"" | "search" | "marks">("");
+  const [panel, setPanel] = useState<"" | "search" | "marks" | "toc">("");
+  const [outline, setOutline] = useState<Chapter[]>([]);
   const [stats, setStats] = useState<Stats | null>(cache.stats(me.id));
   const [session, setSession] = useState(0);
   const [showNote, setShowNote] = useState(false);
@@ -73,6 +74,7 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
         }
         const doc = await openPdf(await blob.arrayBuffer());
         setPdf(doc);
+        readOutline(doc).then(setOutline).catch(() => {});
         setLoadPct(null);
         const start = startPage || b.progress.lastPage || 1;
         setPage(Math.min(Math.max(1, start), doc.numPages));
@@ -166,6 +168,7 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
     localStorage.setItem("dyala:theme", next);
     toast.show(`الثيم: ${THEME_LABEL[next]}`);
   };
+  const chapterNow = (() => { let c: Chapter | null = null; for (const ch of outline) { if (ch.depth === 0 && ch.page <= page) c = ch; } let sub: Chapter | null = null; for (const ch of outline) { if (ch.depth === 1 && ch.page <= page && (!c || ch.page >= c.page)) sub = ch; } return sub ?? c; })();
   const marked = marks.includes(page);
   const toggleMark = () => { touchActive(); setMarks((m) => (m.includes(page) ? m.filter((x) => x !== page) : [...m, page].sort((a, b) => a - b))); };
   const markDone = () => { if (book) { saveProgress(book.id, { lastPage: total, bookmarks: marks, status: "done" }); toast.show("تم تعليم الكتاب كمكتمل"); } };
@@ -184,7 +187,7 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
     <div className={`reader theme-${theme}`} onClick={touchActive}>
       <header className="r-top">
         <button className="icon-btn" onClick={() => go("/")} aria-label="رجوع"><Icon n="back" /></button>
-        <div className="r-title" title={book?.title}>{book?.title ?? "..."}</div>
+        <div className="r-title" title={book?.title}>{book?.title ?? "..."}{chapterNow && <small className="r-chap">{chapterNow.title}</small>}</div>
         <span className={`timer ${goalDone ? "done" : ""}`} title="وقت القراءة اليوم"><Icon n="star" size={14} fill={goalDone} /> {Math.floor(todaySec / 60)} د</span>
         <button className="icon-btn" onClick={() => setPanel("search")} aria-label="بحث في الكتاب"><Icon n="search" /></button>
         <button className={`icon-btn ${marked ? "on" : ""}`} onClick={toggleMark} aria-label="علامة" aria-pressed={marked}><Icon n="bookmark" fill={marked} /></button>
@@ -217,11 +220,29 @@ export function Reader({ id, me, startPage }: { id: string; me: Me; startPage: n
         <button className="icon-btn" onClick={() => goPage(page + 1)} disabled={page >= total} aria-label="الصفحة التالية"><Icon n="chevL" /></button>
         <div className="r-tools">
           <button className="chip" onClick={() => setZoom((z) => (z >= 2.5 ? 1 : +(z + 0.5).toFixed(1)))}>تكبير {zoom === 1 ? "" : `×${zoom}`}</button>
+          {outline.length > 0 && <button className="chip" onClick={() => setPanel("toc")}>الفصول</button>}
           <button className="chip" onClick={() => setPanel("marks")}>العلامات {marks.length ? `(${marks.length})` : ""}</button>
         </div>
       </footer>
 
       {panel === "search" && book && <SearchPanel bookId={book.id} onClose={() => setPanel("")} onPick={(n) => { goPage(n); setPanel(""); }} />}
+      {panel === "toc" && (
+        <Sheet title="الفصول" onClose={() => setPanel("")}>
+          <div className="list">
+            {outline.map((c, i) => {
+              const next = outline.slice(i + 1).find((x) => x.depth <= c.depth);
+              const here = chapterNow === c;
+              const end = next ? next.page - 1 : total;
+              return (
+                <button key={i} className={`row toc d${c.depth} ${here ? "on" : ""}`} onClick={() => { goPage(c.page); setPanel(""); }}>
+                  <span dir="auto" className="toc-t">{c.title}</span>
+                  <small className="muted">{c.page}{end > c.page ? `–${end}` : ""}</small>
+                </button>
+              );
+            })}
+          </div>
+        </Sheet>
+      )}
       {panel === "marks" && (
         <Sheet title="علاماتي" onClose={() => setPanel("")}>
           {marks.length === 0 ? <p className="muted">ما في علامات. اضغطي على أيقونة العلامة في أعلى الصفحة.</p> : (

@@ -9,6 +9,34 @@ export async function openPdf(data: ArrayBuffer): Promise<any> {
   return pdfjs.getDocument({ data: new Uint8Array(data), ...OPTS }).promise;
 }
 
+export type Chapter = { title: string; page: number; depth: number };
+
+/** Chapters from the PDF's own bookmarks (outline). Works offline; returns [] when the file has none. */
+export async function readOutline(doc: any): Promise<Chapter[]> {
+  let out: any[] | null = null;
+  try { out = await doc.getOutline(); } catch { return []; }
+  if (!out?.length) return [];
+  const list: Chapter[] = [];
+  const pageOf = async (dest: any): Promise<number | null> => {
+    try {
+      const d = typeof dest === "string" ? await doc.getDestination(dest) : dest;
+      if (!Array.isArray(d)) return null;
+      const ref = d[0];
+      return typeof ref === "number" ? ref + 1 : (await doc.getPageIndex(ref)) + 1;
+    } catch { return null; }
+  };
+  const walk = async (items: any[], depth: number) => {
+    for (const it of items) {
+      const title = String(it.title ?? "").replace(/\s+/g, " ").trim();
+      const page = it.dest ? await pageOf(it.dest) : null;
+      if (title && page) list.push({ title, page, depth });
+      if (it.items?.length && depth < 1) await walk(it.items, depth + 1);
+    }
+  };
+  await walk(out, 0);
+  return list.sort((a, b) => a.page - b.page || a.depth - b.depth);
+}
+
 export type Extracted = {
   numPages: number;
   title: string;

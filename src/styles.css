@@ -131,3 +131,9 @@ input.full { width: 100%; margin-bottom: 8px; }
 .admin-list li { display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; }
 .admin-list .grow { flex: 1; display: grid; min-width: 0; } .admin-list b { overflow-wrap: anywhere; } .note-preview { color: var(--accent); }
 @media (min-width: 700px) { .stat-grid { grid-template-columns: repeat(4, 1fr); } }
+
+.r-title { display: flex; flex-direction: column; line-height: 1.2; }
+.r-chap { font-weight: 500; font-size: 11px; opacity: .7; overflow: hidden; text-overflow: ellipsis; }
+.row.toc { justify-content: space-between; }
+.row.toc.d1 { margin-inline-start: 18px; font-size: 14px; background: transparent; }
+.toc-t { flex: 1; min-width: 0; text-align: start; }
