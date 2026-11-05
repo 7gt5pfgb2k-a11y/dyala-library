@@ -129,6 +129,26 @@ async function currentUser(req: Request, env: Env): Promise<User | null> {
   return env.DB.prepare("SELECT id,username,name,role FROM users WHERE id=?").bind(Number(uid)).first<User>();
 }
 
+
+async function takeAiQuota(env: Env, user: User) {
+  const day = new Date().toISOString().slice(0, 10);
+  const limit = user.role === "admin" ? 30 : 200;
+  const used = (await env.DB.prepare("SELECT count FROM ai_usage WHERE user_id=? AND day=?").bind(user.id, day).first<{ count: number }>())?.count ?? 0;
+  if (used >= limit) throw new HttpError(429, "وصلتي للحد اليومي لأسئلة الـ AI، بنرجع بكرا");
+  await env.DB.prepare("INSERT INTO ai_usage(user_id,day,count) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET count=count+1").bind(user.id, day).run();
+  return { left: limit - used - 1, refund: () => env.DB.prepare("UPDATE ai_usage SET count=MAX(0,count-1) WHERE user_id=? AND day=?").bind(user.id, day).run() };
+}
+async function callClaude(env: Env, system: string, content: any[], maxTokens = 1800) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: env.AI_MODEL || "claude-sonnet-5-5", max_tokens: maxTokens, system, messages: [{ role: "user", content }] }),
+  });
+  if (!r.ok) { console.error("anthropic", r.status, (await r.text()).slice(0, 300)); return null; }
+  const out: any = await r.json();
+  return (out.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim();
+}
+
 /* ---------- books ---------- */
 type BookRow = {
   id: string; owner_id: number; title: string; author: string; description: string; category: string; shelf: string;
@@ -331,6 +351,51 @@ async function route(req: Request, env: Env): Promise<Response> {
       `SELECT bp.book_id AS bookId, bp.n, bp.text, b.title FROM book_pages bp JOIN books b ON b.id=bp.book_id
        WHERE b.owner_id=? AND bp.text LIKE ? ESCAPE '\\' ORDER BY b.title, bp.n LIMIT 60`).bind(user.id, `%${escLike(q)}%`).all<any>()).results;
     return json({ results: rows.map((r) => ({ bookId: r.bookId, title: r.title, page: r.n, snippet: snippet(r.text, q) })) });
+  }
+
+  /* --- writing studio --- */
+  if (path === "writings" && m === "GET") {
+    const rows = (await env.DB.prepare("SELECT id,title,substr(body,1,140) AS preview,length(body) AS size,updated_at AS updatedAt FROM writings WHERE user_id=? ORDER BY updated_at DESC LIMIT 200").bind(user.id).all<any>()).results;
+    return json({ writings: rows });
+  }
+  if (path === "writings" && m === "POST") {
+    const b = await body(req);
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+    await env.DB.prepare("INSERT INTO writings(id,user_id,title,body,updated_at) VALUES(?,?,?,?,?)").bind(id, user.id, text(b.title, 200), "", Date.now()).run();
+    return json({ id });
+  }
+  if (seg[0] === "writings" && seg.length === 2) {
+    const w = await env.DB.prepare("SELECT id,title,body,updated_at AS updatedAt FROM writings WHERE id=? AND user_id=?").bind(seg[1], user.id).first<any>();
+    if (!w) throw new HttpError(404, "غير موجود");
+    if (m === "GET") return json(w);
+    if (m === "PUT") {
+      const b = await body(req);
+      const t = typeof b.title === "string" ? b.title.trim().slice(0, 200) : w.title;
+      const bd = typeof b.body === "string" ? b.body.slice(0, 80000) : w.body;
+      await env.DB.prepare("UPDATE writings SET title=?,body=?,updated_at=? WHERE id=?").bind(t, bd, Date.now(), w.id).run();
+      return json({ ok: true });
+    }
+    if (m === "DELETE") { await env.DB.prepare("DELETE FROM writings WHERE id=?").bind(w.id).run(); return json({ ok: true }); }
+  }
+  if (path === "ai/write" && m === "POST") {
+    if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, "ميزة الـ AI غير مفعّلة بعد (المفتاح غير مضاف)");
+    const b = await body(req);
+    const w = await env.DB.prepare("SELECT title,body FROM writings WHERE id=? AND user_id=?").bind(text(b.id, 40), user.id).first<{ title: string; body: string }>();
+    if (!w) throw new HttpError(404, "غير موجود");
+    if (w.body.trim().length < 40) throw new HttpError(400, "اكتبي شوي أكتر عشان أقدر أعطيك ملاحظات");
+    const mode = b.mode === "ideas" ? "ideas" : "feedback";
+    const q = await takeAiQuota(env, user);
+    const system = [
+      "You are a warm but honest writing coach for a student named Dyala who is developing her writing and may be writing a book. Never rewrite her whole text and never write the book for her; her voice stays hers.",
+      "Detect the language of her text. Give the coaching itself in simple Arabic (light Palestinian dialect is fine); quote short snippets from her text in their original language.",
+      "Be concise, specific and no flattery, no emojis. Reference exact phrases from her text.",
+      mode === "feedback"
+        ? "Task: (1) one line on what works; (2) the 3 most important problems (clarity, structure, grammar/word choice, rhythm), each with a short quote and a concrete fix; (3) rewrite at most ONE sentence as a model; (4) one short exercise for the next session."
+        : "Task: suggest where the piece could go next: 3 possible directions or open questions, a possible outline for the next section, and 3 questions she should answer to deepen it. Do not write the text itself.",
+    ].join("\n");
+    const ans = await callClaude(env, system, [{ type: "text", text: `Title: ${w.title || "(untitled)"}\n\nText:\n${w.body.slice(0, 20000)}` }], 1400);
+    if (ans === null) { await q.refund(); throw new HttpError(502, "تعذّر الاتصال بالـ AI، جرّبي بعد شوي"); }
+    return json({ answer: ans, left: q.left });
   }
 
   /* --- AI helper (explain / quiz / summary / ask) --- */

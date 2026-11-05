@@ -8,6 +8,7 @@ import { Library } from "./pages/Library";
 import { Reader } from "./pages/Reader";
 import { Admin } from "./pages/Admin";
 import { AddBookPage } from "./pages/AddBook";
+import { WriteEditor, WriteList } from "./pages/Write";
 
 function Login({ onLogin }: { onLogin: (m: Me) => void }) {
   const [username, setU] = useState("");
@@ -79,6 +80,9 @@ function App() {
 
   const book = /^\/book\/([\w-]+)$/.exec(path);
   if (book) return <Reader id={book[1]} me={me} startPage={Number(new URLSearchParams(loc.split("?")[1] ?? "").get("p")) || 0} />;
+  const wr = /^\/write\/([\w-]+)$/.exec(path);
+  if (wr) return <WriteEditor id={wr[1]} />;
+  if (path === "/write") return <WriteList />;
   if (path === "/add") return <AddBookPage me={me} />;
   if (path === "/admin") return me.role === "admin" ? <Admin me={me} onLogout={logout} /> : <Library me={me} onLogout={logout} />;
   return <Library me={me} onLogout={logout} />;

@@ -144,3 +144,7 @@ input.full { width: 100%; margin-bottom: 8px; }
 .ai-text { white-space: pre-wrap; line-height: 1.8; margin-top: 6px; font-size: .96rem; }
 .ai-ask { display: flex; gap: 8px; position: sticky; bottom: 0; padding-top: 8px; background: var(--bg); }
 .ai-ask input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: inherit; font: inherit; }
+
+.w-title { width: 100%; font: inherit; font-size: 1.3rem; font-weight: 700; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; margin-bottom: 8px; }
+.w-body { width: 100%; min-height: 55vh; font: inherit; line-height: 1.9; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: inherit; resize: vertical; }
+.w-title:focus, .w-body:focus { outline: 2px solid var(--ink); outline-offset: 1px; }

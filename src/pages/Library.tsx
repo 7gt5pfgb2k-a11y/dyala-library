@@ -75,6 +75,7 @@ export function Library({ me, onLogout }: { me: Me; onLogout: () => void }) {
           <h1>أهلاً {me.name}</h1>
           <p className="muted">{lib.books.length ? "اختاري كتابك وكملي من وين وقفتِ" : "مكتبتك فاضية، ضيفي أول كتاب"}</p>
         </div>
+        <button className="icon-btn" onClick={() => go("/write")} aria-label="مساحة الكتابة"><Icon n="edit" /></button>
         <button className="icon-btn" onClick={() => setMenu(true)} aria-label="القائمة"><Icon n="more" /></button>
       </header>
 
@@ -146,6 +147,7 @@ export function Library({ me, onLogout }: { me: Me; onLogout: () => void }) {
       {moving && <ShelfSheet book={moving} shelves={shelves} onClose={() => setMoving(null)} onPick={(s) => moveTo(moving, s)} />}
       {menu && (
         <Sheet title="القائمة" onClose={() => setMenu(false)}>
+          <button className="row" onClick={() => go("/write")}><Icon n="edit" /> مساحة الكتابة</button>
           <button className="row" onClick={() => go("/add")}><Icon n="plus" /> إضافة كتاب</button>
           <button className="row" onClick={() => { setMenu(false); setPw(true); }}><Icon n="edit" /> تغيير كلمة السر</button>
           <button className="row" onClick={onLogout}><Icon n="logout" /> تسجيل الخروج</button>
