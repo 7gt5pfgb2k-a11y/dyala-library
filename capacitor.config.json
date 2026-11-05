@@ -1,0 +1,7 @@
+{
+  "appId": "app.dyalalibrary.reader",
+  "appName": "مكتبة ديالا",
+  "webDir": "dist",
+  "server": { "url": "https://dyala-library.pages.dev", "cleartext": false },
+  "ios": { "contentInset": "always", "backgroundColor": "#fbf5ea" }
+}
