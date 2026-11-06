@@ -16,7 +16,7 @@ export function WriteList() {
   return (
     <div className="page">
       <header className="top">
-        <div><h1>مساحة الكتابة</h1><p className="muted">اكتبي كتابك أو نصوصك، وخذي ملاحظات تطوّر أسلوبك</p></div>
+        <div><h1>مساحة الكتابة</h1><p className="muted">اكتبي مذكراتك ونصوصك، وخذي ملاحظات تطوّر أسلوبك</p></div>
         <button className="icon-btn" onClick={() => go("/")} aria-label="رجوع للمكتبة"><Icon n="back" /></button>
       </header>
       {err && <p className="error">{err}</p>}
@@ -65,12 +65,12 @@ export function WriteEditor({ id }: { id: string }) {
     return () => removeEventListener("beforeunload", f);
   }, []);
 
-  const ask = async (mode: "feedback" | "ideas") => {
+  const ask = async (mode: "feedback" | "ideas" | "memories") => {
     setBusy(true); setErr("");
     try {
       await save();
       const r = await api<{ answer: string }>("ai/write", { method: "POST", body: { id, mode } });
-      setResult({ title: mode === "feedback" ? "ملاحظات على كتابتك" : "أفكار للمتابعة", text: r.answer });
+      setResult({ title: mode === "feedback" ? "ملاحظات على كتابتك" : mode === "memories" ? "أسئلة تساعدك تتذكري" : "أفكار للمتابعة", text: r.answer });
     } catch (e: any) { setErr(e.message || "تعذّر الطلب"); }
     setBusy(false);
   };
@@ -94,10 +94,11 @@ export function WriteEditor({ id }: { id: string }) {
         <small className="muted">{words} كلمة · {saved === "saving" ? "جاري الحفظ..." : saved === "saved" ? "تم الحفظ" : saved === "fail" ? "فشل الحفظ" : ""}</small>
       </header>
       <input className="w-title" dir="auto" placeholder="العنوان" value={title} onChange={(e) => { dirty.current = true; setTitle(e.target.value); }} />
-      <textarea className="w-body" dir="auto" placeholder="ابدئي الكتابة هون..." value={text} onChange={(e) => { dirty.current = true; setText(e.target.value); }} />
+      <textarea className="w-body" dir="auto" placeholder="ابدئي بذكرى وحدة، مشهد أو مكان أو شخص..." value={text} onChange={(e) => { dirty.current = true; setText(e.target.value); }} />
       {err && <p className="error">{err}</p>}
       <div className="ai-bar">
         <button className="chip ai" disabled={busy || text.trim().length < 40} onClick={() => ask("feedback")}>ملاحظات AI</button>
+        <button className="chip" disabled={busy || text.trim().length < 40} onClick={() => ask("memories")}>أسئلة تذكّر</button>
         <button className="chip" disabled={busy || text.trim().length < 40} onClick={() => ask("ideas")}>أفكار للمتابعة</button>
         <button className="chip" onClick={download}>تنزيل</button>
         <button className="chip" onClick={remove}>حذف</button>

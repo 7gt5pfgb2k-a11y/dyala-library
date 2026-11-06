@@ -383,14 +383,16 @@ async function route(req: Request, env: Env): Promise<Response> {
     const w = await env.DB.prepare("SELECT title,body FROM writings WHERE id=? AND user_id=?").bind(text(b.id, 40), user.id).first<{ title: string; body: string }>();
     if (!w) throw new HttpError(404, "غير موجود");
     if (w.body.trim().length < 40) throw new HttpError(400, "اكتبي شوي أكتر عشان أقدر أعطيك ملاحظات");
-    const mode = b.mode === "ideas" ? "ideas" : "feedback";
+    const mode = b.mode === "ideas" ? "ideas" : b.mode === "memories" ? "memories" : "feedback";
     const q = await takeAiQuota(env, user);
     const system = [
-      "You are a warm but honest writing coach for a student named Dyala who is developing her writing and may be writing a book. Never rewrite her whole text and never write the book for her; her voice stays hers.",
+      "You are a warm but honest writing coach for a student named Dyala who is developing her writing and is writing her memoirs (personal memories) and developing her writing. Never rewrite her whole text and never write the book for her; her voice stays hers.",
       "Detect the language of her text. Give the coaching itself in simple Arabic (light Palestinian dialect is fine); quote short snippets from her text in their original language.",
-      "Be concise, specific and no flattery, no emojis. Reference exact phrases from her text.",
+      "Be concise, specific and no flattery, no emojis. Reference exact phrases from her text. For memoir: value concrete scenes, sensory detail (what she saw, heard, smelled), dialogue, honest feelings and her own voice over summary; treat painful or private memories with care and never push her to disclose more than she wants.",
       mode === "feedback"
         ? "Task: (1) one line on what works; (2) the 3 most important problems (clarity, structure, grammar/word choice, rhythm), each with a short quote and a concrete fix; (3) rewrite at most ONE sentence as a model; (4) one short exercise for the next session."
+        : mode === "memories"
+        ? "Task: from what she wrote, ask 6 specific memory-jogging questions that help her recall and write the scene more vividly (people, places, sounds, smells, what was said, how she felt), then suggest a title for this memory. Do not write the text itself."
         : "Task: suggest where the piece could go next: 3 possible directions or open questions, a possible outline for the next section, and 3 questions she should answer to deepen it. Do not write the text itself.",
     ].join("\n");
     const ans = await callClaude(env, system, [{ type: "text", text: `Title: ${w.title || "(untitled)"}\n\nText:\n${w.body.slice(0, 20000)}` }], 1400);
