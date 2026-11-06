@@ -355,7 +355,7 @@ async function route(req: Request, env: Env): Promise<Response> {
 
   /* --- writing studio --- */
   if (path === "writings" && m === "GET") {
-    const rows = (await env.DB.prepare("SELECT id,title,substr(body,1,140) AS preview,length(body) AS size,updated_at AS updatedAt FROM writings WHERE user_id=? ORDER BY updated_at DESC LIMIT 200").bind(user.id).all<any>()).results;
+    const rows = (await env.DB.prepare("SELECT id,title,length(body) AS size,updated_at AS updatedAt FROM writings WHERE user_id=? ORDER BY updated_at DESC LIMIT 200").bind(user.id).all<any>()).results;
     return json({ writings: rows });
   }
   if (path === "writings" && m === "POST") {
@@ -380,8 +380,8 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (path === "ai/write" && m === "POST") {
     if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, "ميزة الـ AI غير مفعّلة بعد (المفتاح غير مضاف)");
     const b = await body(req);
-    const w = await env.DB.prepare("SELECT title,body FROM writings WHERE id=? AND user_id=?").bind(text(b.id, 40), user.id).first<{ title: string; body: string }>();
-    if (!w) throw new HttpError(404, "غير موجود");
+    // Texts are end-to-end encrypted in the database; the app sends the decrypted text only for this request.
+    const w = { title: text(b.title, 200), body: typeof b.text === "string" ? b.text.slice(0, 20000) : "" };
     if (w.body.trim().length < 40) throw new HttpError(400, "اكتبي شوي أكتر عشان أقدر أعطيك ملاحظات");
     const mode = b.mode === "ideas" ? "ideas" : b.mode === "memories" ? "memories" : "feedback";
     const q = await takeAiQuota(env, user);
