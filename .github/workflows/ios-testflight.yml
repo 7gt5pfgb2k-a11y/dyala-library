@@ -1,0 +1,79 @@
+# Builds the Dyala iPhone app on a cloud Mac and uploads it to TestFlight (no local Mac needed).
+# One-time setup, GitHub -> Settings -> Secrets and variables -> Actions, add 4 secrets:
+#   ASC_KEY_ID     Key ID of an App Store Connect API key (Team key, role Admin)
+#   ASC_ISSUER_ID  Issuer ID (same page)
+#   ASC_KEY_P8     full content of AuthKey_XXXX.p8 including the BEGIN/END lines
+#   APPLE_TEAM_ID  Team ID (developer.apple.com -> Membership)
+# Also create the app record once in App Store Connect (My Apps -> New App) with bundle ID app.dyalalibrary.reader.
+# Then: Actions -> "iOS TestFlight" -> Run workflow (branch build/v1).
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check Apple secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          missing=""
+          for v in ASC_KEY_ID ASC_ISSUER_ID APPLE_TEAM_ID ASC_KEY_P8; do [ -n "${!v}" ] || missing="$missing $v"; done
+          if [ -n "$missing" ]; then echo "::error::Missing GitHub secrets:$missing"; exit 1; fi
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using ${X:-default}"; [ -n "$X" ] && sudo xcode-select -s "$X" || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx cap sync ios
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+      - name: Archive (unsigned; signing happens at export)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            archive | tail -n 40
+      - name: Export and upload to TestFlight
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          set -o pipefail
+          xcodebuild -exportArchive -archivePath build/App.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" | tail -n 60
+      - name: Remove key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
